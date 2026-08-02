@@ -6,11 +6,12 @@ dist/
 build/
 *.spec
 
-# Exporter outputs and cache
+# Exporter outputs and cache (never commit — generated per user/machine)
 arena_id_lookup.json
 last_anchors.json
 mtga_collection.json
 mtga_collection.txt
+mtga_collection.csv
 export.log
 
 # macOS

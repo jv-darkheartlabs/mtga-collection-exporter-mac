@@ -27,7 +27,24 @@ MTG Arena on Mac stores card metadata locally, but there is no built-in export f
 - MTG Arena installed and running
 - Network only needed if local card DB cache is missing (Scryfall fallback)
 
-## Quick start
+## Install
+
+### Option A — Download a release (easiest)
+
+1. Open **[Releases](https://github.com/jv-darkheartlabs/mtga-collection-exporter-mac/releases)**
+2. Download `mtga-export` (or the `.zip`) for your Mac
+3. Make it executable and run:
+
+```bash
+chmod +x mtga-export
+sudo ./mtga-export
+```
+
+On first launch, macOS may block the unsigned binary — use **Right-click → Open**.
+
+No personal data is bundled. Each user enters their own anchor cards on first run (saved locally as `last_anchors.json`, gitignored).
+
+### Option B — Install from source (developers)
 
 ```bash
 git clone https://github.com/jv-darkheartlabs/mtga-collection-exporter-mac.git
@@ -38,7 +55,17 @@ source .venv/bin/activate
 python mtg.py
 ```
 
-### Before you run
+### Option C — Homebrew (optional)
+
+```bash
+brew tap jv-darkheartlabs/tap
+brew install mtga-collection-exporter-mac
+mtga-export
+```
+
+Requires the [homebrew-tap](https://github.com/jv-darkheartlabs/homebrew-tap) repo with an updated formula SHA. See `docs/RELEASE.md`.
+
+## Quick start (after install)
 
 1. Launch **MTG Arena**
 2. Open **Decks** or **Collection**
@@ -54,22 +81,6 @@ sudo .venv/bin/python mtg.py
 
 You may also need to grant **Full Disk Access** to Terminal (or your IDE) under System Settings → Privacy & Security.
 
-## Homebrew (optional)
-
-```bash
-brew install jv-darkheartlabs/tap/mtga-collection-exporter-mac
-mtga-export
-```
-
-See `Formula/mtga-collection-exporter-mac.rb` for the formula source.
-
-## Build a standalone CLI binary
-
-```bash
-./scripts/build-macos.sh
-./dist/mtga-export
-```
-
 ## Troubleshooting
 
 | Symptom | Fix |
@@ -79,6 +90,12 @@ See `Formula/mtga-collection-exporter-mac.rb` for the formula source.
 | Scanner finds no collection | Use rarer anchor cards (legendaries work well) |
 | Wrong card names | Delete `arena_id_lookup.json` to rebuild cache |
 | Duplicate entries | Should be fixed vs upstream; report if you see regressions |
+
+## For maintainers
+
+Publishing a version for everyone (without personal export files): see **[docs/RELEASE.md](docs/RELEASE.md)**.
+
+Build a local binary: `./scripts/build-macos.sh` → `dist/mtga-export`
 
 ## Project layout
 

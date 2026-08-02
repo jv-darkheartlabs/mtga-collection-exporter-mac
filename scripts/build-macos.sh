@@ -23,6 +23,7 @@ pyinstaller \
   --name mtga-export \
   --clean \
   --collect-all pymem \
+  --copy-metadata pymem-osx \
   mtg.py
 
 echo
