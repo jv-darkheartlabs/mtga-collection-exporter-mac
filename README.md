@@ -1,64 +1,105 @@
-# Changelog - V1.2
+# MTGA Collection Exporter (macOS)
 
-- added priority for local card sql database, scryfall used as backup
+Export your **Magic: The Gathering Arena** collection on macOS to text, JSON, and Moxfield-compatible CSV while the game is running.
 
-- added progress bar for mem searching
+Fork of [NthPhantom10/MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter) with macOS paths, memory backend, installer, and distribution tooling.
 
-- removed redundant comments on source code
+## Problem
 
-- fixed issue where the .txt would list items multiple times
+MTG Arena on Mac stores card metadata locally, but there is no built-in export for deck builders like Moxfield. The upstream exporter targets Windows memory APIs; this fork adds a macOS memory scanner and Apple-native install paths.
 
-- added csv exports for Moxfield
+## Solution
 
-- added card set identifiers to the .txt 
+1. Load card names from local MTGA SQLite catalogs (Scryfall fallback)
+2. Attach to the running `MTGA` process and scan memory using anchor cards you own
+3. Write three export files next to the script
 
-- and more small changes
+| File | Purpose |
+|------|---------|
+| `mtga_collection.txt` | Human-readable count + name (+ set) |
+| `mtga_collection.json` | Structured export with set and collector number |
+| `mtga_collection.csv` | Moxfield import format |
 
-imported collection to moxfield:
-<img width="1901" height="962" alt="image" src="https://github.com/user-attachments/assets/4f784272-e2fc-4521-8aa1-9137c1029aa4" />
+## Requirements
 
-Better text file
-- before: 
-<img width="1080" height="467" alt="image" src="https://github.com/user-attachments/assets/c0bb05cd-4996-4b2a-8c12-7b4bba20aabe" />
+- macOS 12+ (Apple Silicon tested)
+- Python 3.10+
+- MTG Arena installed and running
+- Network only needed if local card DB cache is missing (Scryfall fallback)
 
-- after: 
-<img width="1112" height="480" alt="image" src="https://github.com/user-attachments/assets/9609dd74-69c2-4c85-9ea1-8a9c35aa7d6e" />
+## Quick start
 
-Progress bars: 
-<img width="388" height="96" alt="image" src="https://github.com/user-attachments/assets/ccc5c324-3f62-430b-bc74-366c4f9314d9" />
+```bash
+git clone https://github.com/jv-darkheartlabs/mtga-collection-exporter-mac.git
+cd mtga-collection-exporter-mac
+chmod +x install.sh
+./install.sh
+source .venv/bin/activate
+python mtg.py
+```
 
-# MTG Arena Collection Exporter
+### Before you run
 
-This tool scans your game memory while MTG Arena is running to export your entire card collection.
-It outputs two files:
-- `mtga_collection.json`: Full data including card IDs and quantities.
-- `mtga_collection.txt`: A readable list of your cards (Count + Name).
+1. Launch **MTG Arena**
+2. Open **Decks** or **Collection**
+3. Scroll through cards for ~30 seconds so your collection loads into memory
 
-## How to use
+### macOS permissions
 
-### Option 1: Run the Executable (Simplest)
-1. Navigate to **Releases**
-2. Download and extract the **zip**
-4. Navigate inside the extradted folder
-5. Ensure **MTG Arena is running**.
-6. Go to the **Decks** or **Collection** tab in-game, scroll for 30 secs through your collection (important so your collection loads into memory).
-7. Run `MTGA_Exporter.exe`.
-8. Follow the prompts to allow the tool do find and export your collection.
+Memory scanning uses Mach APIs. If connection fails:
 
-### Option 2: Run from Python Source
-1. Download and extract zip
-3. navigate inside folder
-4. Install Python 3.x.
-5. Run `install.bat` to install dependencies (`pymem`, `requests`).
-6. Run `python mtg.py`.
+```bash
+sudo .venv/bin/python mtg.py
+```
+
+You may also need to grant **Full Disk Access** to Terminal (or your IDE) under System Settings → Privacy & Security.
+
+## Homebrew (optional)
+
+```bash
+brew install jv-darkheartlabs/tap/mtga-collection-exporter-mac
+mtga-export
+```
+
+See `Formula/mtga-collection-exporter-mac.rb` for the formula source.
+
+## Build a standalone CLI binary
+
+```bash
+./scripts/build-macos.sh
+./dist/mtga-export
+```
 
 ## Troubleshooting
-- If the tool cannot find your collection, ensure you have visited the Collection/Decks tab.
-- Try providing different anchor cards if the first attempt fails (rarer anchor cards such as [O:legendary] work better, as they are more unique to your collection).
-- Run as Administrator if you encounter permission errors.
 
-## Files
-- `MTGA_Exporter.exe`: The standalone application.
-- `mtg.py`: The source code.
-- `requirements.txt`: Python dependencies.
-- `install.bat`: Setup script for Python users.
+| Symptom | Fix |
+|---------|-----|
+| "MTG Arena not running" | Open the game and visit Collection/Decks first |
+| "task_for_pid failed" | Run with `sudo` |
+| Scanner finds no collection | Use rarer anchor cards (legendaries work well) |
+| Wrong card names | Delete `arena_id_lookup.json` to rebuild cache |
+| Duplicate entries | Should be fixed vs upstream; report if you see regressions |
+
+## Project layout
+
+| Path | Role |
+|------|------|
+| `mtg.py` | CLI entrypoint and export logic |
+| `mtga_memory.py` | macOS/Windows memory backend |
+| `install.sh` | macOS venv + dependency setup |
+| `requirements-mac.txt` | macOS deps (`pymem-osx`, `requests`) |
+| `docs/TECH_SPEC.md` | Architecture and evidence map |
+
+## Upstream credit
+
+Based on [MTGA-collection-exporter](https://github.com/NthPhantom10/MTGA-collection-exporter) by NthPhantom10 (MIT). Windows `.exe` workflow remains documented upstream.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+**Maintained by:** [Dark Heart Labs](https://darkheartlabs.technology)  
+**Author:** Jennifer ([@jv-darkheartlabs](https://github.com/jv-darkheartlabs))  
+**Site:** https://darkheartlabs.technology

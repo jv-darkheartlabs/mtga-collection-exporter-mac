@@ -1,0 +1,8 @@
+# <type>(<scope>): <imperative summary — max 72 chars>
+#
+# Types: feat | fix | docs | test | chore | refactor | ci | build | perf | style | revert
+#
+# Body (optional): explain WHY, not what — wrap at 72 characters.
+#
+# Dark Heart Labs — https://darkheartlabs.technology
+# Conventional Commits: https://www.conventionalcommits.org/
