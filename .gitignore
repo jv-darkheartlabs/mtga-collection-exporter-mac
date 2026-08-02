@@ -11,7 +11,7 @@ arena_id_lookup.json
 last_anchors.json
 mtga_collection.json
 mtga_collection.txt
-mtga_collection.csv
+export.log
 
 # macOS
 .DS_Store

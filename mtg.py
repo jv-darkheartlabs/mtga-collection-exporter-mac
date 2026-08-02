@@ -25,6 +25,16 @@ ANCHOR_FILE = SCRIPT_DIR / "last_anchors.json"
 OUTPUT_JSON = SCRIPT_DIR / "mtga_collection.json"
 OUTPUT_TXT = SCRIPT_DIR / "mtga_collection.txt"
 OUTPUT_CSV = SCRIPT_DIR / "mtga_collection.csv"
+LOG_FILE = SCRIPT_DIR / "export.log"
+
+
+def log_line(message: str) -> None:
+    print(message)
+    try:
+        with LOG_FILE.open("a", encoding="utf-8") as log_file:
+            log_file.write(message + "\n")
+    except OSError:
+        pass
 
 
 def print_progress(
@@ -383,32 +393,43 @@ def pause_before_exit() -> None:
 
 def main():
     platform_label = platform.system()
-    print(f"MTGA Collection Exporter (macOS) | v{VERSION}")
-    print(f"Platform: {platform_label}")
-    print(f"Output folder: {SCRIPT_DIR}\n")
+    LOG_FILE.write_text("", encoding="utf-8")
+    log_line(f"MTGA Collection Exporter (macOS) | v{VERSION}")
+    log_line(f"Platform: {platform_label}")
+    log_line(f"Output folder: {SCRIPT_DIR}")
 
+    try:
+        _run_export()
+    except Exception as exc:
+        log_line(f"[Error] {type(exc).__name__}: {exc}")
+        pause_before_exit()
+
+
+def _run_export():
     db = load_card_database()
     if not db:
+        log_line("Database init failed.")
         pause_before_exit()
         return
 
-    print("Connecting to MTGA...")
+    log_line("Connecting to MTGA...")
     try:
         pm = connect_to_mtga()
-        print(f"Connected (PID: {pm.process_id})")
+        log_line(f"Connected (PID: {pm.process_id})")
     except Exception as exc:
-        print(f"MTG Arena not running or memory access denied: {exc}")
-        print("Open the game, visit the Decks/Collection tab, then retry.")
+        log_line(f"MTG Arena not running or memory access denied: {exc}")
+        log_line("Open the game, visit the Decks/Collection tab, then retry.")
         if sys.platform == "darwin":
-            print("On macOS, you may need: sudo python3 mtg.py")
+            log_line("On macOS, you may need: sudo python3 mtg.py")
         pause_before_exit()
         return
 
     anchors = get_user_anchors({v["name"].lower(): k for k, v in db.items()})
     if not anchors:
+        log_line("No anchor cards provided.")
         return
 
-    print("\nScanning memory for collection data...")
+    log_line("\nScanning memory for collection data...")
     matches = []
     total_anchors = len(anchors)
 
@@ -417,11 +438,17 @@ def main():
     for i, (aid, aqty, aname) in enumerate(anchors):
         display_name = (aname[:15] + "..") if len(aname) > 15 else aname
         print_progress(i, total_anchors, prefix="Mem Scan:", suffix=f"Find {display_name}", length=25)
+        log_line(f"Scanning for anchor {aname} (grpId={aid}, qty={aqty})...")
 
-        res = pm.pattern_scan_all(struct.pack("<II", aid, aqty), return_multiple=True)
+        res = pm.pattern_scan_all(
+            struct.pack("<II", aid, aqty),
+            return_multiple=True,
+            log=log_line,
+        )
 
         if res:
             matches.extend(res)
+            log_line(f"Found {len(res)} memory match(es) for {aname}")
             print_progress(total_anchors, total_anchors, prefix="Mem Scan:", suffix="Found!", length=25)
             if aqty > 1:
                 break
@@ -429,7 +456,7 @@ def main():
         print_progress(i + 1, total_anchors, prefix="Mem Scan:", suffix="Done", length=25)
 
     if not matches:
-        print("\nScanner failed to locate collection from anchors.")
+        log_line("Scanner failed to locate collection from anchors.")
         pause_before_exit()
         return
 
@@ -438,12 +465,12 @@ def main():
         candidates.extend(find_blocks(pm, m))
 
     if not candidates:
-        print("No valid data blocks found.")
+        log_line("No valid data blocks found.")
         pause_before_exit()
         return
 
     collection = max(candidates, key=len)
-    print(f"\n[Success] Found {len(collection)} unique entries.")
+    log_line(f"[Success] Found {len(collection)} unique entries.")
 
     processed = {}
     for cid, qty in collection.items():
@@ -474,8 +501,8 @@ def main():
         for item in final_list:
             writer.writerow([item["count"], item["name"], item["set"], "Near Mint", "English", "", ""])
 
-    print("\nExport complete!")
-    print(f"Files saved to: {SCRIPT_DIR}")
+    log_line("\nExport complete!")
+    log_line(f"Files saved to: {SCRIPT_DIR}")
     reveal_output_file(OUTPUT_TXT)
     pause_before_exit()
 

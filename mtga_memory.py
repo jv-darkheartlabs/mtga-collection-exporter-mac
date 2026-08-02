@@ -6,7 +6,9 @@ import ctypes
 import ctypes.util
 import os
 import sys
-from typing import List, Protocol
+from typing import Callable, List, Optional, Protocol
+
+LogFn = Callable[[str], None]
 
 
 class MemoryProcess(Protocol):
@@ -14,7 +16,12 @@ class MemoryProcess(Protocol):
 
     def read_bytes(self, address: int, size: int) -> bytes: ...
 
-    def pattern_scan_all(self, pattern: bytes, return_multiple: bool = False) -> List[int]: ...
+    def pattern_scan_all(
+        self,
+        pattern: bytes,
+        return_multiple: bool = False,
+        log: Optional[LogFn] = None,
+    ) -> List[int]: ...
 
 
 def get_process_name() -> str:
@@ -50,7 +57,12 @@ class _WindowsMemoryProcess:
     def read_bytes(self, address: int, size: int) -> bytes:
         return self._pm.read_bytes(address, size)
 
-    def pattern_scan_all(self, pattern: bytes, return_multiple: bool = False) -> List[int]:
+    def pattern_scan_all(
+        self,
+        pattern: bytes,
+        return_multiple: bool = False,
+        log: Optional[LogFn] = None,
+    ) -> List[int]:
         result = self._pm.pattern_scan_all(pattern, return_multiple=return_multiple)
         if not result:
             return []
@@ -65,8 +77,10 @@ class _MacMemoryProcess:
 
     def __init__(self, process_name: str) -> None:
         import pymem as mac_pymem
+        import pymem.process as mac_process
 
         self._pm = mac_pymem.Pymem(process_name)
+        self._mac_process = mac_process
         self._libproc = ctypes.CDLL(ctypes.util.find_library("libproc"))
         from pymem.resources import vmtypes as vt
 
@@ -77,11 +91,28 @@ class _MacMemoryProcess:
         return self._pm.pid
 
     def read_bytes(self, address: int, size: int) -> bytes:
-        return self._pm.read_bytes(address, size)
+        buffer = ctypes.create_string_buffer(size)
+        read_size = self._mac_process.read(
+            self._pm.task, ctypes.c_uint64(address), buffer, size
+        )
+        if read_size <= 0:
+            raise OSError(f"mach_vm_read failed at 0x{address:x}")
+        return buffer.raw[:read_size]
 
-    def pattern_scan_all(self, pattern: bytes, return_multiple: bool = False) -> List[int]:
+    def pattern_scan_all(
+        self,
+        pattern: bytes,
+        return_multiple: bool = False,
+        log: Optional[LogFn] = None,
+    ) -> List[int]:
         matches: List[int] = []
-        for region_start, region_size, protection in self._iter_regions():
+        regions = list(self._iter_regions())
+        total_regions = len(regions)
+
+        for region_index, (region_start, region_size, protection) in enumerate(regions, start=1):
+            if log and region_index % 250 == 0:
+                log(f"Scanning region {region_index}/{total_regions}...")
+
             if not (protection & self._vt.VM_PROT_READ):
                 continue
             if region_size <= 0:
@@ -92,7 +123,7 @@ class _MacMemoryProcess:
                 read_size = min(self.CHUNK_SIZE, region_size - offset)
                 try:
                     data = self.read_bytes(region_start + offset, read_size)
-                except Exception:
+                except OSError:
                     break
 
                 search_at = 0
@@ -101,6 +132,8 @@ class _MacMemoryProcess:
                     if idx == -1:
                         break
                     matches.append(region_start + offset + idx)
+                    if log:
+                        log(f"Pattern match at 0x{region_start + offset + idx:x}")
                     if not return_multiple:
                         return matches
                     search_at = idx + 1
@@ -109,6 +142,8 @@ class _MacMemoryProcess:
                     break
                 offset += read_size - len(pattern) + 1
 
+        if log:
+            log(f"Scan complete: {len(matches)} match(es) across {total_regions} regions")
         return matches
 
     def _iter_regions(self):
