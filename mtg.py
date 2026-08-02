@@ -29,10 +29,11 @@ LOG_FILE = SCRIPT_DIR / "export.log"
 
 
 def log_line(message: str) -> None:
-    print(message)
+    print(message, flush=True)
     try:
         with LOG_FILE.open("a", encoding="utf-8") as log_file:
             log_file.write(message + "\n")
+            log_file.flush()
     except OSError:
         pass
 

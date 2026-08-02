@@ -108,10 +108,12 @@ class _MacMemoryProcess:
         matches: List[int] = []
         regions = list(self._iter_regions())
         total_regions = len(regions)
+        if log:
+            log(f"Scanning {total_regions} memory regions (may take several minutes)...")
 
         for region_index, (region_start, region_size, protection) in enumerate(regions, start=1):
-            if log and region_index % 250 == 0:
-                log(f"Scanning region {region_index}/{total_regions}...")
+            if log and (region_index == 1 or region_index % 25 == 0 or region_index == total_regions):
+                log(f"Memory scan progress: region {region_index}/{total_regions}")
 
             if not (protection & self._vt.VM_PROT_READ):
                 continue
