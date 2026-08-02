@@ -1,5 +1,6 @@
 import csv
 import difflib
+import gzip
 import json
 import platform
 import sqlite3
@@ -67,6 +68,34 @@ def get_local_mtga_path() -> Path | None:
     return None
 
 
+def load_localizations(cursor, tables: set[str]) -> dict[int, str]:
+    """Load card title localizations for Windows or macOS MTGA SQLite schemas."""
+    loc_map: dict[int, str] = {}
+
+    if "Localizations_enUS" in tables:
+        cursor.execute("SELECT LocId, Loc FROM Localizations_enUS")
+        for loc_id, text in cursor.fetchall():
+            if text:
+                loc_map[loc_id] = text
+        return loc_map
+
+    if "Localizations" not in tables:
+        return loc_map
+
+    try:
+        cursor.execute("SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL")
+        for loc_id, text in cursor.fetchall():
+            if text:
+                loc_map[loc_id] = text
+    except sqlite3.Error:
+        cursor.execute("SELECT Id, Text FROM Localizations")
+        for loc_id, text in cursor.fetchall():
+            if text:
+                loc_map[loc_id] = text
+
+    return loc_map
+
+
 def load_local_mtga_database():
     """Scan local MTGA SQLite files for card definitions."""
     raw_path = get_local_mtga_path()
@@ -101,20 +130,13 @@ def load_local_mtga_database():
 
                 tables = {row[0] for row in cursor.execute("SELECT name FROM sqlite_master WHERE type='table'")}
 
-                if "Cards" in tables and "Localizations" in tables:
-                    loc_map = {}
-                    try:
-                        cursor.execute(
-                            "SELECT Id, Text FROM Localizations WHERE Format LIKE '%en-US%' OR Format IS NULL"
-                        )
-                        for lid, text in cursor.fetchall():
-                            if text:
-                                loc_map[lid] = text
-                    except sqlite3.Error:
-                        cursor.execute("SELECT Id, Text FROM Localizations")
-                        for lid, text in cursor.fetchall():
-                            if text:
-                                loc_map[lid] = text
+                if "Cards" in tables and (
+                    "Localizations" in tables or "Localizations_enUS" in tables
+                ):
+                    loc_map = load_localizations(cursor, tables)
+                    if not loc_map:
+                        conn.close()
+                        continue
 
                     cols = [row[1] for row in cursor.execute("PRAGMA table_info(Cards)")]
                     has_set = "ExpansionCode" in cols
@@ -163,17 +185,52 @@ def fetch_scryfall_database():
     """Download card data from Scryfall API."""
     print("Fetching card data from Scryfall API...")
     try:
-        bulk_meta = requests.get("https://api.scryfall.com/bulk-data/default-cards", timeout=30).json()
-        cards_data = requests.get(bulk_meta["download_uri"], timeout=120).json()
+        bulk_meta = requests.get(
+            "https://api.scryfall.com/bulk-data/default-cards",
+            headers={"User-Agent": "mtga-collection-exporter-mac/1.0"},
+            timeout=30,
+        ).json()
+        download_uri = bulk_meta.get("download_uri") or bulk_meta.get("jsonl_download_uri")
+        if not download_uri:
+            raise KeyError("download_uri")
+
+        response = requests.get(
+            download_uri,
+            headers={"User-Agent": "mtga-collection-exporter-mac/1.0"},
+            timeout=180,
+        )
+        response.raise_for_status()
 
         lookup = {}
-        for c in cards_data:
-            if c.get("arena_id"):
-                lookup[c["arena_id"]] = {
-                    "name": c.get("name", "Unknown"),
-                    "set": c.get("set", "").upper(),
-                    "collector_number": c.get("collector_number", ""),
-                }
+        if download_uri.endswith(".jsonl.gz"):
+            payload = gzip.decompress(response.content).decode("utf-8")
+            for line in payload.splitlines():
+                if not line.strip():
+                    continue
+                card = json.loads(line)
+                if card.get("arena_id"):
+                    lookup[card["arena_id"]] = {
+                        "name": card.get("name", "Unknown"),
+                        "set": card.get("set", "").upper(),
+                        "collector_number": card.get("collector_number", ""),
+                    }
+        elif download_uri.endswith(".json"):
+            for card in response.json():
+                if card.get("arena_id"):
+                    lookup[card["arena_id"]] = {
+                        "name": card.get("name", "Unknown"),
+                        "set": card.get("set", "").upper(),
+                        "collector_number": card.get("collector_number", ""),
+                    }
+        else:
+            cards_data = response.json()
+            for card in cards_data:
+                if card.get("arena_id"):
+                    lookup[card["arena_id"]] = {
+                        "name": card.get("name", "Unknown"),
+                        "set": card.get("set", "").upper(),
+                        "collector_number": card.get("collector_number", ""),
+                    }
         return lookup
     except Exception as e:
         print(f"Scryfall download failed: {e}")
