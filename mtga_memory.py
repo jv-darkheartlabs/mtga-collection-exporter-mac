@@ -6,9 +6,12 @@ import ctypes
 import ctypes.util
 import os
 import sys
-from typing import Callable, List, Optional, Protocol
+from typing import Callable, Iterator, List, Optional, Protocol, Tuple
 
 LogFn = Callable[[str], None]
+
+Region = Tuple[int, int, int]
+MAX_REGIONS = 200_000
 
 
 class MemoryProcess(Protocol):
@@ -73,7 +76,7 @@ class _WindowsMemoryProcess:
 
 class _MacMemoryProcess:
     CHUNK_SIZE = 4 * 1024 * 1024
-    OVERLAP = max(8, 0)
+    PAGE_SIZE = 4096
 
     def __init__(self, process_name: str) -> None:
         import pymem as mac_pymem
@@ -105,20 +108,30 @@ class _MacMemoryProcess:
         return_multiple: bool = False,
         log: Optional[LogFn] = None,
     ) -> List[int]:
-        matches: List[int] = []
-        regions = list(self._iter_regions())
-        total_regions = len(regions)
         if log:
-            log(f"Scanning {total_regions} memory regions (may take several minutes)...")
+            log("Starting memory region walk...")
 
-        for region_index, (region_start, region_size, protection) in enumerate(regions, start=1):
-            if log and (region_index == 1 or region_index % 25 == 0 or region_index == total_regions):
-                log(f"Memory scan progress: region {region_index}/{total_regions}")
+        matches: List[int] = []
+        scanned_regions = 0
+        readable_regions = 0
 
+        for region_index, (region_start, region_size, protection) in enumerate(
+            self._iter_regions(log=log), start=1
+        ):
+            scanned_regions = region_index
             if not (protection & self._vt.VM_PROT_READ):
+                continue
+            if not (protection & self._vt.VM_PROT_WRITE):
                 continue
             if region_size <= 0:
                 continue
+
+            readable_regions += 1
+            if log and (readable_regions == 1 or readable_regions % 10 == 0):
+                log(
+                    f"Scanning heap region {readable_regions} "
+                    f"(addr 0x{region_start:x}, size {region_size // (1024 * 1024)} MB)..."
+                )
 
             offset = 0
             while offset < region_size:
@@ -145,18 +158,22 @@ class _MacMemoryProcess:
                 offset += read_size - len(pattern) + 1
 
         if log:
-            log(f"Scan complete: {len(matches)} match(es) across {total_regions} regions")
+            log(
+                f"Scan complete: {len(matches)} match(es) across "
+                f"{readable_regions} writable region(s), {scanned_regions} total region(s)"
+            )
         return matches
 
-    def _iter_regions(self):
+    def _iter_regions(self, log: Optional[LogFn] = None) -> Iterator[Region]:
         vt = self._vt
         addr = ctypes.c_uint64(0)
-        size = ctypes.c_uint32()
+        size = ctypes.c_uint64(0)
         count = ctypes.c_uint32(vt.VM_REGION_BASIC_INFO_COUNT_64)
         info = vt.VmRegionBasicInfo64()
         obj_name = ctypes.c_uint32()
 
-        while True:
+        for _ in range(MAX_REGIONS):
+            count.value = vt.VM_REGION_BASIC_INFO_COUNT_64
             kern = ctypes.c_int(
                 self._libproc.mach_vm_region(
                     self._pm.task,
@@ -171,5 +188,15 @@ class _MacMemoryProcess:
             if kern.value != 0:
                 break
 
-            yield addr.value, size.value, info.protection
-            addr.value += size.value
+            region_start = addr.value
+            region_size = size.value
+            yield region_start, region_size, info.protection
+
+            if region_size == 0:
+                addr.value += self.PAGE_SIZE
+            else:
+                addr.value += region_size
+
+        else:
+            if log:
+                log(f"[Warn] Region walk hit safety limit ({MAX_REGIONS}).")
